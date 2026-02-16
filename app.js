@@ -195,7 +195,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Open ${selected.length} selected download page(s)`;
+  confirmMessage.textContent = `Download ${selected.length} item(s)? (Will Open tabs for each Direct Download)`;
   confirmModal.classList.remove("hidden");
 }
 
