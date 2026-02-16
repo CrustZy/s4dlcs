@@ -1,4 +1,5 @@
 const HF_BASE_URL = "https://huggingface.co/datasets/AbcZero/S4DLC/resolve/main/";
+const HF_TREE_API_BASE_URL = "https://huggingface.co/api/datasets/AbcZero/S4DLC/tree/main/";
 
 const PACKS = [
   { code: "EA DLC Unlocker v2 145", path: "EA DLC Unlocker v2 145", category: "Core", name: "EA DLC Unlocker v2 145", releaseDate: "-" },
@@ -134,8 +135,16 @@ const confirmNoBtn = document.getElementById("confirmNoBtn");
 let queuedPacks = [];
 let isDownloading = false;
 
+function encodePath(path) {
+  return path.split("/").map((part) => encodeURIComponent(part)).join("/");
+}
+
 function createDownloadUrl(path) {
-  return `${HF_BASE_URL}${encodeURIComponent(path)}?download=true`;
+  return `${HF_BASE_URL}${encodePath(path)}?download=true`;
+}
+
+function createTreeApiUrl(path) {
+  return `${HF_TREE_API_BASE_URL}${encodePath(path)}?recursive=true`;
 }
 
 function setStatus(text) {
@@ -180,7 +189,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Download ${selected.length} selected item(s) one by one?`;
+  confirmMessage.textContent = `Download files from ${selected.length} selected folder(s) one by one?`;
   confirmModal.classList.remove("hidden");
 }
 
@@ -204,33 +213,98 @@ function wait(ms) {
   });
 }
 
-async function queueDownload(pack) {
+async function resolveFilesForPack(pack) {
+  const response = await fetch(createTreeApiUrl(pack.path));
+  if (!response.ok) {
+    if (response.status === 404) {
+      return [{ pack, filePath: pack.path }];
+    }
+    throw new Error(`Failed to resolve ${pack.code} (${response.status})`);
+  }
+
+  const entries = await response.json();
+  if (!Array.isArray(entries)) {
+    return [{ pack, filePath: pack.path }];
+  }
+
+  const files = [];
+  for (const entry of entries) {
+    if (entry.type !== "file" || typeof entry.path !== "string") {
+      continue;
+    }
+    files.push({ pack, filePath: entry.path });
+  }
+
+  if (files.length === 0) {
+    files.push({ pack, filePath: pack.path });
+  }
+  return files;
+}
+
+async function resolveDownloadQueue(selected) {
+  const queue = [];
+  const failed = [];
+  const seen = new Set();
+
+  for (let i = 0; i < selected.length; i += 1) {
+    const pack = selected[i];
+    setStatus(`Resolving ${i + 1}/${selected.length}: ${pack.code} - ${pack.name}`);
+    try {
+      const files = await resolveFilesForPack(pack);
+      for (const item of files) {
+        if (seen.has(item.filePath)) {
+          continue;
+        }
+        seen.add(item.filePath);
+        queue.push(item);
+      }
+    } catch (_error) {
+      failed.push(pack);
+    }
+  }
+
+  return { queue, failed };
+}
+
+async function queueDownload(filePath) {
   const iframe = document.createElement("iframe");
   iframe.style.display = "none";
-  iframe.src = createDownloadUrl(pack.path);
+  iframe.src = createDownloadUrl(filePath);
   document.body.appendChild(iframe);
-  await wait(45);
-  return iframe;
+  await wait(80);
+  iframe.remove();
 }
 
 async function startDownloads(selected) {
   isDownloading = true;
   setControlsDisabled(true);
-  setStatus(`Starting ${selected.length} download(s)...`);
-  const activeFrames = [];
+  setStatus(`Resolving files from ${selected.length} selected folder(s)...`);
+  const { queue, failed } = await resolveDownloadQueue(selected);
 
-  for (let i = 0; i < selected.length; i += 1) {
-    const pack = selected[i];
-    setStatus(`Starting download ${i + 1}/${selected.length}: ${pack.code} - ${pack.name}`);
-    const frame = await queueDownload(pack);
-    activeFrames.push(frame);
+  if (queue.length === 0) {
+    if (failed.length > 0) {
+      setStatus(`Could not resolve selected folders: ${failed.map((pack) => pack.code).join(", ")}`);
+    } else {
+      setStatus("No files found for selected folders.");
+    }
+    isDownloading = false;
+    setControlsDisabled(false);
+    updateSelectionCount();
+    return;
   }
 
-  await wait(600);
-  for (const frame of activeFrames) {
-    frame.remove();
+  setStatus(`Starting ${queue.length} file download(s)...`);
+  for (let i = 0; i < queue.length; i += 1) {
+    const item = queue[i];
+    setStatus(`Starting download ${i + 1}/${queue.length}: ${item.pack.code} (${item.filePath})`);
+    await queueDownload(item.filePath);
   }
-  setStatus(`Queued ${selected.length} download(s). If your browser asks, allow multiple automatic downloads.`);
+
+  if (failed.length > 0) {
+    setStatus(`Queued ${queue.length} file download(s). Failed folders: ${failed.map((pack) => pack.code).join(", ")}`);
+  } else {
+    setStatus(`Queued ${queue.length} file download(s) from ${selected.length} folder(s). If your browser asks, allow multiple automatic downloads.`);
+  }
   isDownloading = false;
   setControlsDisabled(false);
   updateSelectionCount();
