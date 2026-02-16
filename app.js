@@ -1,7 +1,5 @@
 const HF_BASE_URL = "https://huggingface.co/datasets/AbcZero/S4DLC/resolve/main/";
-const HF_TREE_API_BASE_URL = "https://huggingface.co/api/datasets/AbcZero/S4DLC/tree/main/";
-const DOWNLOAD_START_DELAY_MS = 300;
-const IFRAME_CLEANUP_DELAY_MS = 120000;
+const REDIRECT_INTERVAL_MS = 500;
 
 const PACKS = [
   { code: "EA DLC Unlocker v2 145", path: "EA DLC Unlocker v2 145", category: "Core", name: "EA DLC Unlocker v2 145", releaseDate: "-" },
@@ -135,20 +133,18 @@ const confirmYesBtn = document.getElementById("confirmYesBtn");
 const confirmNoBtn = document.getElementById("confirmNoBtn");
 
 let queuedPacks = [];
-let isDownloading = false;
-let metadataLoaded = false;
-const zipInfoByName = new Map();
+let isRedirecting = false;
 
 function encodePath(path) {
   return path.split("/").map((part) => encodeURIComponent(part)).join("/");
 }
 
-function createDownloadUrl(path) {
-  return `${HF_BASE_URL}${encodePath(path)}?download=true`;
+function createZipPath(pack) {
+  return `${pack.path}.zip`;
 }
 
-function createRootTreeApiUrl() {
-  return `${HF_TREE_API_BASE_URL}?recursive=false`;
+function createDownloadUrl(pack) {
+  return `${HF_BASE_URL}${encodePath(createZipPath(pack))}?download=true`;
 }
 
 function setStatus(text) {
@@ -159,13 +155,6 @@ function getCheckboxes() {
   return packsBody.querySelectorAll(".pack-check");
 }
 
-function updateSelectionCount() {
-  const selected = getSelectedPacks();
-  const available = PACKS.filter((pack) => isZipAvailable(pack)).length;
-  selectionCount.textContent = `${selected.length} selected (${available} available)`;
-  downloadBtn.disabled = selected.length === 0 || isDownloading;
-}
-
 function getSelectedPacks() {
   const selected = [];
   for (const checkbox of getCheckboxes()) {
@@ -173,13 +162,15 @@ function getSelectedPacks() {
       continue;
     }
     const index = Number(checkbox.dataset.index);
-    const pack = PACKS[index];
-    if (!isZipAvailable(pack)) {
-      continue;
-    }
-    selected.push(pack);
+    selected.push(PACKS[index]);
   }
   return selected;
+}
+
+function updateSelectionCount() {
+  const selected = getSelectedPacks();
+  selectionCount.textContent = `${selected.length} selected`;
+  downloadBtn.disabled = selected.length === 0 || isRedirecting;
 }
 
 function setAllSelections(value) {
@@ -204,7 +195,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Download ${selected.length} selected zip file(s) one by one?`;
+  confirmMessage.textContent = `Open ${selected.length} selected download page(s) at 2 per second?`;
   confirmModal.classList.remove("hidden");
 }
 
@@ -218,12 +209,7 @@ function setControlsDisabled(disabled) {
   selectNoneBtn.disabled = disabled;
   downloadBtn.disabled = disabled || getSelectedPacks().length === 0;
   for (const checkbox of getCheckboxes()) {
-    const index = Number(checkbox.dataset.index);
-    const pack = PACKS[index];
-    checkbox.disabled = disabled || !isZipAvailable(pack);
-    if (checkbox.disabled) {
-      checkbox.checked = false;
-    }
+    checkbox.disabled = disabled;
   }
 }
 
@@ -233,139 +219,36 @@ function wait(ms) {
   });
 }
 
-function createZipName(pack) {
-  return `${pack.path}.zip`;
-}
-
-function isZipAvailable(pack) {
-  return zipInfoByName.has(createZipName(pack));
-}
-
-function formatZipSize(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "Unknown";
-  }
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1000 && unitIndex < units.length - 1) {
-    value /= 1000;
-    unitIndex += 1;
-  }
-  if (unitIndex === 0) {
-    return `${Math.round(value)} ${units[unitIndex]}`;
-  }
-  return `${value.toFixed(2)} ${units[unitIndex]}`;
-}
-
-function updateZipCells() {
-  const statusCells = packsBody.querySelectorAll(".zip-status");
-  const sizeCells = packsBody.querySelectorAll(".zip-size");
-
-  for (const cell of statusCells) {
-    const index = Number(cell.dataset.index);
-    const pack = PACKS[index];
-    if (!metadataLoaded) {
-      cell.textContent = "Loading...";
-      continue;
-    }
-    cell.textContent = isZipAvailable(pack) ? "Available" : "Missing";
-  }
-
-  for (const cell of sizeCells) {
-    const index = Number(cell.dataset.index);
-    const pack = PACKS[index];
-    const zipName = createZipName(pack);
-    const info = zipInfoByName.get(zipName);
-    if (!metadataLoaded) {
-      cell.textContent = "Loading...";
-      continue;
-    }
-    if (!info) {
-      cell.textContent = "-";
-      continue;
-    }
-    cell.textContent = formatZipSize(info.size);
-  }
-
-  setControlsDisabled(isDownloading);
-  updateSelectionCount();
-}
-
-async function loadZipMetadata() {
-  setStatus("Loading zip files and sizes...");
-  try {
-    const response = await fetch(createRootTreeApiUrl());
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const entries = await response.json();
-    zipInfoByName.clear();
-    if (Array.isArray(entries)) {
-      for (const entry of entries) {
-        if (entry.type !== "file" || typeof entry.path !== "string") {
-          continue;
-        }
-        if (!entry.path.endsWith(".zip")) {
-          continue;
-        }
-        const size = typeof entry.size === "number" ? entry.size : NaN;
-        zipInfoByName.set(entry.path, { size });
-      }
-    }
-    metadataLoaded = true;
-    updateZipCells();
-    const available = PACKS.filter((pack) => isZipAvailable(pack)).length;
-    setStatus(`Ready. Loaded ${PACKS.length} items. ${available} zip(s) available.`);
-  } catch (_error) {
-    metadataLoaded = true;
-    updateZipCells();
-    setStatus("Failed to load zip metadata from Hugging Face.");
-  }
-}
-
-async function queueDownload(zipPath, activeFrames) {
-  const iframe = document.createElement("iframe");
-  iframe.style.display = "none";
-  iframe.src = createDownloadUrl(zipPath);
-  document.body.appendChild(iframe);
-  activeFrames.push(iframe);
-  await wait(DOWNLOAD_START_DELAY_MS);
-}
-
-async function startDownloads(selected) {
-  isDownloading = true;
+async function startRedirects(selected) {
+  isRedirecting = true;
   setControlsDisabled(true);
-  const queue = [];
-  for (const pack of selected) {
-    if (isZipAvailable(pack)) {
-      queue.push({ pack, zipPath: createZipName(pack) });
-    }
-  }
-  if (queue.length === 0) {
-    setStatus("No selected zips are currently available.");
-    isDownloading = false;
+  const helperWindow = window.open("about:blank", "s4dlc_downloader");
+  if (!helperWindow) {
+    setStatus("Popup blocked. Allow popups for this site and try again.");
+    isRedirecting = false;
     setControlsDisabled(false);
     updateSelectionCount();
     return;
   }
 
-  setStatus(`Starting ${queue.length} zip download(s)...`);
-  const activeFrames = [];
-  for (let i = 0; i < queue.length; i += 1) {
-    const item = queue[i];
-    setStatus(`Starting download ${i + 1}/${queue.length}: ${item.zipPath}`);
-    await queueDownload(item.zipPath, activeFrames);
+  setStatus(`Opening ${selected.length} download page(s) at 2 per second...`);
+  for (let i = 0; i < selected.length; i += 1) {
+    if (helperWindow.closed) {
+      setStatus(`Stopped at ${i}/${selected.length}: downloader window was closed.`);
+      isRedirecting = false;
+      setControlsDisabled(false);
+      updateSelectionCount();
+      return;
+    }
+    const pack = selected[i];
+    const zipPath = createZipPath(pack);
+    setStatus(`Opening ${i + 1}/${selected.length}: ${zipPath}`);
+    helperWindow.location.href = createDownloadUrl(pack);
+    await wait(REDIRECT_INTERVAL_MS);
   }
 
-  setTimeout(() => {
-    for (const iframe of activeFrames) {
-      iframe.remove();
-    }
-  }, IFRAME_CLEANUP_DELAY_MS);
-
-  setStatus(`Queued ${queue.length} zip download(s). If your browser asks, allow multiple automatic downloads and keep this tab open briefly.`);
-  isDownloading = false;
+  setStatus(`Opened ${selected.length} download page(s).`);
+  isRedirecting = false;
   setControlsDisabled(false);
   updateSelectionCount();
 }
@@ -388,7 +271,6 @@ function renderRows() {
     checkbox.type = "checkbox";
     checkbox.className = "pack-check";
     checkbox.dataset.index = String(i);
-    checkbox.disabled = true;
     checkbox.addEventListener("change", updateSelectionCount);
     checkCell.appendChild(checkbox);
 
@@ -397,14 +279,6 @@ function renderRows() {
     row.appendChild(createCell(pack.category));
     row.appendChild(createCell(pack.name));
     row.appendChild(createCell(pack.releaseDate));
-    const zipStatusCell = createCell("Loading...");
-    zipStatusCell.className = "zip-status";
-    zipStatusCell.dataset.index = String(i);
-    row.appendChild(zipStatusCell);
-    const zipSizeCell = createCell("Loading...");
-    zipSizeCell.className = "zip-size";
-    zipSizeCell.dataset.index = String(i);
-    row.appendChild(zipSizeCell);
 
     fragment.appendChild(row);
   }
@@ -413,28 +287,28 @@ function renderRows() {
 }
 
 selectAllBtn.addEventListener("click", () => {
-  if (isDownloading) {
+  if (isRedirecting) {
     return;
   }
   setAllSelections(true);
 });
 
 toggleAllBtn.addEventListener("click", () => {
-  if (isDownloading) {
+  if (isRedirecting) {
     return;
   }
   toggleSelections();
 });
 
 selectNoneBtn.addEventListener("click", () => {
-  if (isDownloading) {
+  if (isRedirecting) {
     return;
   }
   setAllSelections(false);
 });
 
 downloadBtn.addEventListener("click", () => {
-  if (isDownloading) {
+  if (isRedirecting) {
     return;
   }
   const selected = getSelectedPacks();
@@ -454,7 +328,7 @@ confirmYesBtn.addEventListener("click", async () => {
   const selected = [...queuedPacks];
   queuedPacks = [];
   closeConfirmModal();
-  await startDownloads(selected);
+  await startRedirects(selected);
 });
 
 confirmModal.addEventListener("click", (event) => {
@@ -473,5 +347,4 @@ window.addEventListener("keydown", (event) => {
 
 renderRows();
 updateSelectionCount();
-setStatus("Loading zip files and sizes...");
-loadZipMetadata();
+setStatus(`Ready. Loaded ${PACKS.length} items.`);
