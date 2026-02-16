@@ -195,7 +195,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Open ${selected.length} selected download page(s) at 2 per second?`;
+  confirmMessage.textContent = `Open ${selected.length} selected download page(s)`;
   confirmModal.classList.remove("hidden");
 }
 
@@ -231,7 +231,7 @@ async function startRedirects(selected) {
     return;
   }
 
-  setStatus(`Opening ${selected.length} download page(s) at 2 per second...`);
+  setStatus(`Opening ${selected.length} download page(s)`);
   for (let i = 0; i < selected.length; i += 1) {
     if (helperWindow.closed) {
       setStatus(`Stopped at ${i}/${selected.length}: downloader window was closed.`);
