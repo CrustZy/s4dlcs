@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S4DLC Download Selector</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>S4DLC Download Selector</h1>
+      <p class="subhead">Source: <a href="https://huggingface.co/datasets/AbcZero/S4DLC/tree/main" target="_blank" rel="noopener noreferrer">AbcZero/S4DLC</a></p>
+    </header>
+
+    <section class="controls">
+      <div class="left-controls">
+        <button id="selectAllBtn" type="button">Select All</button>
+        <button id="toggleAllBtn" type="button">Toggle All</button>
+        <button id="selectNoneBtn" type="button">Select None</button>
+      </div>
+      <div class="right-controls">
+        <span id="selectionCount">0 selected</span>
+        <button id="downloadBtn" type="button" class="primary">Download Selected</button>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Code</th>
+            <th>Category</th>
+            <th>Name</th>
+            <th>Release Date</th>
+          </tr>
+        </thead>
+        <tbody id="packsBody"></tbody>
+      </table>
+    </section>
+
+    <section class="status-wrap">
+      <p id="statusText">Ready.</p>
+    </section>
+  </main>
+
+  <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal-content">
+      <h2 id="confirmTitle">Start Downloads?</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-actions">
+        <button id="confirmNoBtn" type="button">No</button>
+        <button id="confirmYesBtn" type="button" class="primary">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
