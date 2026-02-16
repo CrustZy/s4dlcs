@@ -136,6 +136,8 @@ const confirmNoBtn = document.getElementById("confirmNoBtn");
 
 let queuedPacks = [];
 let isDownloading = false;
+let metadataLoaded = false;
+const zipInfoByName = new Map();
 
 function encodePath(path) {
   return path.split("/").map((part) => encodeURIComponent(part)).join("/");
@@ -145,8 +147,8 @@ function createDownloadUrl(path) {
   return `${HF_BASE_URL}${encodePath(path)}?download=true`;
 }
 
-function createTreeApiUrl(path) {
-  return `${HF_TREE_API_BASE_URL}${encodePath(path)}?recursive=true`;
+function createRootTreeApiUrl() {
+  return `${HF_TREE_API_BASE_URL}?recursive=false`;
 }
 
 function setStatus(text) {
@@ -159,7 +161,8 @@ function getCheckboxes() {
 
 function updateSelectionCount() {
   const selected = getSelectedPacks();
-  selectionCount.textContent = `${selected.length} selected`;
+  const available = PACKS.filter((pack) => isZipAvailable(pack)).length;
+  selectionCount.textContent = `${selected.length} selected (${available} available)`;
   downloadBtn.disabled = selected.length === 0 || isDownloading;
 }
 
@@ -170,13 +173,20 @@ function getSelectedPacks() {
       continue;
     }
     const index = Number(checkbox.dataset.index);
-    selected.push(PACKS[index]);
+    const pack = PACKS[index];
+    if (!isZipAvailable(pack)) {
+      continue;
+    }
+    selected.push(pack);
   }
   return selected;
 }
 
 function setAllSelections(value) {
   for (const checkbox of getCheckboxes()) {
+    if (checkbox.disabled) {
+      continue;
+    }
     checkbox.checked = value;
   }
   updateSelectionCount();
@@ -184,6 +194,9 @@ function setAllSelections(value) {
 
 function toggleSelections() {
   for (const checkbox of getCheckboxes()) {
+    if (checkbox.disabled) {
+      continue;
+    }
     checkbox.checked = !checkbox.checked;
   }
   updateSelectionCount();
@@ -191,7 +204,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Download files from ${selected.length} selected folder(s) one by one?`;
+  confirmMessage.textContent = `Download ${selected.length} selected zip file(s) one by one?`;
   confirmModal.classList.remove("hidden");
 }
 
@@ -205,7 +218,12 @@ function setControlsDisabled(disabled) {
   selectNoneBtn.disabled = disabled;
   downloadBtn.disabled = disabled || getSelectedPacks().length === 0;
   for (const checkbox of getCheckboxes()) {
-    checkbox.disabled = disabled;
+    const index = Number(checkbox.dataset.index);
+    const pack = PACKS[index];
+    checkbox.disabled = disabled || !isZipAvailable(pack);
+    if (checkbox.disabled) {
+      checkbox.checked = false;
+    }
   }
 }
 
@@ -215,63 +233,101 @@ function wait(ms) {
   });
 }
 
-async function resolveFilesForPack(pack) {
-  const response = await fetch(createTreeApiUrl(pack.path));
-  if (!response.ok) {
-    if (response.status === 404) {
-      return [{ pack, filePath: pack.path }];
-    }
-    throw new Error(`Failed to resolve ${pack.code} (${response.status})`);
-  }
+function createZipName(pack) {
+  return `${pack.path}.zip`;
+}
 
-  const entries = await response.json();
-  if (!Array.isArray(entries)) {
-    return [{ pack, filePath: pack.path }];
-  }
+function isZipAvailable(pack) {
+  return zipInfoByName.has(createZipName(pack));
+}
 
-  const files = [];
-  for (const entry of entries) {
-    if (entry.type !== "file" || typeof entry.path !== "string") {
+function formatZipSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "Unknown";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1000;
+    unitIndex += 1;
+  }
+  if (unitIndex === 0) {
+    return `${Math.round(value)} ${units[unitIndex]}`;
+  }
+  return `${value.toFixed(2)} ${units[unitIndex]}`;
+}
+
+function updateZipCells() {
+  const statusCells = packsBody.querySelectorAll(".zip-status");
+  const sizeCells = packsBody.querySelectorAll(".zip-size");
+
+  for (const cell of statusCells) {
+    const index = Number(cell.dataset.index);
+    const pack = PACKS[index];
+    if (!metadataLoaded) {
+      cell.textContent = "Loading...";
       continue;
     }
-    files.push({ pack, filePath: entry.path });
+    cell.textContent = isZipAvailable(pack) ? "Available" : "Missing";
   }
 
-  if (files.length === 0) {
-    files.push({ pack, filePath: pack.path });
+  for (const cell of sizeCells) {
+    const index = Number(cell.dataset.index);
+    const pack = PACKS[index];
+    const zipName = createZipName(pack);
+    const info = zipInfoByName.get(zipName);
+    if (!metadataLoaded) {
+      cell.textContent = "Loading...";
+      continue;
+    }
+    if (!info) {
+      cell.textContent = "-";
+      continue;
+    }
+    cell.textContent = formatZipSize(info.size);
   }
-  return files;
+
+  setControlsDisabled(isDownloading);
+  updateSelectionCount();
 }
 
-async function resolveDownloadQueue(selected) {
-  const queue = [];
-  const failed = [];
-  const seen = new Set();
-
-  for (let i = 0; i < selected.length; i += 1) {
-    const pack = selected[i];
-    setStatus(`Resolving ${i + 1}/${selected.length}: ${pack.code} - ${pack.name}`);
-    try {
-      const files = await resolveFilesForPack(pack);
-      for (const item of files) {
-        if (seen.has(item.filePath)) {
+async function loadZipMetadata() {
+  setStatus("Loading zip files and sizes...");
+  try {
+    const response = await fetch(createRootTreeApiUrl());
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const entries = await response.json();
+    zipInfoByName.clear();
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (entry.type !== "file" || typeof entry.path !== "string") {
           continue;
         }
-        seen.add(item.filePath);
-        queue.push(item);
+        if (!entry.path.endsWith(".zip")) {
+          continue;
+        }
+        const size = typeof entry.size === "number" ? entry.size : NaN;
+        zipInfoByName.set(entry.path, { size });
       }
-    } catch (_error) {
-      failed.push(pack);
     }
+    metadataLoaded = true;
+    updateZipCells();
+    const available = PACKS.filter((pack) => isZipAvailable(pack)).length;
+    setStatus(`Ready. Loaded ${PACKS.length} items. ${available} zip(s) available.`);
+  } catch (_error) {
+    metadataLoaded = true;
+    updateZipCells();
+    setStatus("Failed to load zip metadata from Hugging Face.");
   }
-
-  return { queue, failed };
 }
 
-async function queueDownload(filePath, activeFrames) {
+async function queueDownload(zipPath, activeFrames) {
   const iframe = document.createElement("iframe");
   iframe.style.display = "none";
-  iframe.src = createDownloadUrl(filePath);
+  iframe.src = createDownloadUrl(zipPath);
   document.body.appendChild(iframe);
   activeFrames.push(iframe);
   await wait(DOWNLOAD_START_DELAY_MS);
@@ -280,27 +336,26 @@ async function queueDownload(filePath, activeFrames) {
 async function startDownloads(selected) {
   isDownloading = true;
   setControlsDisabled(true);
-  setStatus(`Resolving files from ${selected.length} selected folder(s)...`);
-  const { queue, failed } = await resolveDownloadQueue(selected);
-
-  if (queue.length === 0) {
-    if (failed.length > 0) {
-      setStatus(`Could not resolve selected folders: ${failed.map((pack) => pack.code).join(", ")}`);
-    } else {
-      setStatus("No files found for selected folders.");
+  const queue = [];
+  for (const pack of selected) {
+    if (isZipAvailable(pack)) {
+      queue.push({ pack, zipPath: createZipName(pack) });
     }
+  }
+  if (queue.length === 0) {
+    setStatus("No selected zips are currently available.");
     isDownloading = false;
     setControlsDisabled(false);
     updateSelectionCount();
     return;
   }
 
-  setStatus(`Starting ${queue.length} file download(s)...`);
+  setStatus(`Starting ${queue.length} zip download(s)...`);
   const activeFrames = [];
   for (let i = 0; i < queue.length; i += 1) {
     const item = queue[i];
-    setStatus(`Starting download ${i + 1}/${queue.length}: ${item.pack.code} (${item.filePath})`);
-    await queueDownload(item.filePath, activeFrames);
+    setStatus(`Starting download ${i + 1}/${queue.length}: ${item.zipPath}`);
+    await queueDownload(item.zipPath, activeFrames);
   }
 
   setTimeout(() => {
@@ -309,11 +364,7 @@ async function startDownloads(selected) {
     }
   }, IFRAME_CLEANUP_DELAY_MS);
 
-  if (failed.length > 0) {
-    setStatus(`Queued ${queue.length} file download(s). Failed folders: ${failed.map((pack) => pack.code).join(", ")}`);
-  } else {
-    setStatus(`Queued ${queue.length} file download(s) from ${selected.length} folder(s). If your browser asks, allow multiple automatic downloads and keep this tab open briefly.`);
-  }
+  setStatus(`Queued ${queue.length} zip download(s). If your browser asks, allow multiple automatic downloads and keep this tab open briefly.`);
   isDownloading = false;
   setControlsDisabled(false);
   updateSelectionCount();
@@ -337,6 +388,7 @@ function renderRows() {
     checkbox.type = "checkbox";
     checkbox.className = "pack-check";
     checkbox.dataset.index = String(i);
+    checkbox.disabled = true;
     checkbox.addEventListener("change", updateSelectionCount);
     checkCell.appendChild(checkbox);
 
@@ -345,6 +397,14 @@ function renderRows() {
     row.appendChild(createCell(pack.category));
     row.appendChild(createCell(pack.name));
     row.appendChild(createCell(pack.releaseDate));
+    const zipStatusCell = createCell("Loading...");
+    zipStatusCell.className = "zip-status";
+    zipStatusCell.dataset.index = String(i);
+    row.appendChild(zipStatusCell);
+    const zipSizeCell = createCell("Loading...");
+    zipSizeCell.className = "zip-size";
+    zipSizeCell.dataset.index = String(i);
+    row.appendChild(zipSizeCell);
 
     fragment.appendChild(row);
   }
@@ -413,4 +473,5 @@ window.addEventListener("keydown", (event) => {
 
 renderRows();
 updateSelectionCount();
-setStatus(`Ready. Loaded ${PACKS.length} items.`);
+setStatus("Loading zip files and sizes...");
+loadZipMetadata();
