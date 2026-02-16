@@ -1,5 +1,7 @@
 const HF_BASE_URL = "https://huggingface.co/datasets/AbcZero/S4DLC/resolve/main/";
 const HF_TREE_API_BASE_URL = "https://huggingface.co/api/datasets/AbcZero/S4DLC/tree/main/";
+const DOWNLOAD_START_DELAY_MS = 300;
+const IFRAME_CLEANUP_DELAY_MS = 120000;
 
 const PACKS = [
   { code: "EA DLC Unlocker v2 145", path: "EA DLC Unlocker v2 145", category: "Core", name: "EA DLC Unlocker v2 145", releaseDate: "-" },
@@ -266,13 +268,13 @@ async function resolveDownloadQueue(selected) {
   return { queue, failed };
 }
 
-async function queueDownload(filePath) {
+async function queueDownload(filePath, activeFrames) {
   const iframe = document.createElement("iframe");
   iframe.style.display = "none";
   iframe.src = createDownloadUrl(filePath);
   document.body.appendChild(iframe);
-  await wait(80);
-  iframe.remove();
+  activeFrames.push(iframe);
+  await wait(DOWNLOAD_START_DELAY_MS);
 }
 
 async function startDownloads(selected) {
@@ -294,16 +296,23 @@ async function startDownloads(selected) {
   }
 
   setStatus(`Starting ${queue.length} file download(s)...`);
+  const activeFrames = [];
   for (let i = 0; i < queue.length; i += 1) {
     const item = queue[i];
     setStatus(`Starting download ${i + 1}/${queue.length}: ${item.pack.code} (${item.filePath})`);
-    await queueDownload(item.filePath);
+    await queueDownload(item.filePath, activeFrames);
   }
+
+  setTimeout(() => {
+    for (const iframe of activeFrames) {
+      iframe.remove();
+    }
+  }, IFRAME_CLEANUP_DELAY_MS);
 
   if (failed.length > 0) {
     setStatus(`Queued ${queue.length} file download(s). Failed folders: ${failed.map((pack) => pack.code).join(", ")}`);
   } else {
-    setStatus(`Queued ${queue.length} file download(s) from ${selected.length} folder(s). If your browser asks, allow multiple automatic downloads.`);
+    setStatus(`Queued ${queue.length} file download(s) from ${selected.length} folder(s). If your browser asks, allow multiple automatic downloads and keep this tab open briefly.`);
   }
   isDownloading = false;
   setControlsDisabled(false);
