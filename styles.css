@@ -96,6 +96,37 @@ button.primary:hover:not(:disabled) {
   background: var(--panel);
 }
 
+.urls-wrap {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.8rem;
+}
+
+.urls-title {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+#selectedUrlsTextarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0f141b;
+  color: var(--text);
+  padding: 0.6rem 0.7rem;
+  font-family: "Consolas", "Courier New", monospace;
+  line-height: 1.4;
+}
+
+#selectedUrlsTextarea::placeholder {
+  color: var(--muted);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

@@ -1,5 +1,5 @@
 const HF_BASE_URL = "https://huggingface.co/datasets/AbcZero/S4DLC/resolve/main/";
-const REDIRECT_INTERVAL_MS = 500;
+const REDIRECT_INTERVAL_MS = 100;
 
 const PACKS = [
   { code: "EA DLC Unlocker v2 145", path: "EA DLC Unlocker v2 145", category: "Core", name: "EA DLC Unlocker v2 145", releaseDate: "-" },
@@ -127,6 +127,7 @@ const selectAllBtn = document.getElementById("selectAllBtn");
 const toggleAllBtn = document.getElementById("toggleAllBtn");
 const selectNoneBtn = document.getElementById("selectNoneBtn");
 const downloadBtn = document.getElementById("downloadBtn");
+const selectedUrlsTextarea = document.getElementById("selectedUrlsTextarea");
 const confirmModal = document.getElementById("confirmModal");
 const confirmMessage = document.getElementById("confirmMessage");
 const confirmYesBtn = document.getElementById("confirmYesBtn");
@@ -167,9 +168,21 @@ function getSelectedPacks() {
   return selected;
 }
 
+function buildSelectedDownloadUrls(selected) {
+  return selected.map((pack) => createDownloadUrl(pack)).join("\n");
+}
+
+function updateSelectedUrlsTextarea(selected) {
+  if (!selectedUrlsTextarea) {
+    return;
+  }
+  selectedUrlsTextarea.value = selected.length === 0 ? "" : buildSelectedDownloadUrls(selected);
+}
+
 function updateSelectionCount() {
   const selected = getSelectedPacks();
   selectionCount.textContent = `${selected.length} selected`;
+  updateSelectedUrlsTextarea(selected);
   downloadBtn.disabled = selected.length === 0 || isRedirecting;
 }
 
@@ -195,7 +208,7 @@ function toggleSelections() {
 
 function openConfirmModal(selected) {
   queuedPacks = selected;
-  confirmMessage.textContent = `Download ${selected.length} item(s)? (Will Open tabs for each Direct Download)`;
+  confirmMessage.textContent = `Download ${selected.length} item(s)? (Will Redirect to e)very page`;
   confirmModal.classList.remove("hidden");
 }
 
