@@ -1,5 +1,4 @@
 const HF_BASE_URL = "https://huggingface.co/datasets/AbcZero/S4DLC/resolve/main/";
-const REDIRECT_INTERVAL_MS = 100;
 
 const PACKS = [
   { code: "EA DLC Unlocker v2 145", path: "EA DLC Unlocker v2 145", category: "Core", name: "EA DLC Unlocker v2 145", releaseDate: "-" },
@@ -122,19 +121,10 @@ const PACKS = [
 
 const packsBody = document.getElementById("packsBody");
 const selectionCount = document.getElementById("selectionCount");
-const statusText = document.getElementById("statusText");
 const selectAllBtn = document.getElementById("selectAllBtn");
 const toggleAllBtn = document.getElementById("toggleAllBtn");
 const selectNoneBtn = document.getElementById("selectNoneBtn");
-const downloadBtn = document.getElementById("downloadBtn");
 const selectedUrlsTextarea = document.getElementById("selectedUrlsTextarea");
-const confirmModal = document.getElementById("confirmModal");
-const confirmMessage = document.getElementById("confirmMessage");
-const confirmYesBtn = document.getElementById("confirmYesBtn");
-const confirmNoBtn = document.getElementById("confirmNoBtn");
-
-let queuedPacks = [];
-let isRedirecting = false;
 
 function encodePath(path) {
   return path.split("/").map((part) => encodeURIComponent(part)).join("/");
@@ -146,10 +136,6 @@ function createZipPath(pack) {
 
 function createDownloadUrl(pack) {
   return `${HF_BASE_URL}${encodePath(createZipPath(pack))}?download=true`;
-}
-
-function setStatus(text) {
-  statusText.textContent = text;
 }
 
 function getCheckboxes() {
@@ -183,14 +169,10 @@ function updateSelectionCount() {
   const selected = getSelectedPacks();
   selectionCount.textContent = `${selected.length} selected`;
   updateSelectedUrlsTextarea(selected);
-  downloadBtn.disabled = selected.length === 0 || isRedirecting;
 }
 
 function setAllSelections(value) {
   for (const checkbox of getCheckboxes()) {
-    if (checkbox.disabled) {
-      continue;
-    }
     checkbox.checked = value;
   }
   updateSelectionCount();
@@ -198,71 +180,8 @@ function setAllSelections(value) {
 
 function toggleSelections() {
   for (const checkbox of getCheckboxes()) {
-    if (checkbox.disabled) {
-      continue;
-    }
     checkbox.checked = !checkbox.checked;
   }
-  updateSelectionCount();
-}
-
-function openConfirmModal(selected) {
-  queuedPacks = selected;
-  confirmMessage.textContent = `Download ${selected.length} item(s)? (Will Redirect to e)very page`;
-  confirmModal.classList.remove("hidden");
-}
-
-function closeConfirmModal() {
-  confirmModal.classList.add("hidden");
-}
-
-function setControlsDisabled(disabled) {
-  selectAllBtn.disabled = disabled;
-  toggleAllBtn.disabled = disabled;
-  selectNoneBtn.disabled = disabled;
-  downloadBtn.disabled = disabled || getSelectedPacks().length === 0;
-  for (const checkbox of getCheckboxes()) {
-    checkbox.disabled = disabled;
-  }
-}
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function startRedirects(selected) {
-  isRedirecting = true;
-  setControlsDisabled(true);
-  const helperWindow = window.open("about:blank", "s4dlc_downloader");
-  if (!helperWindow) {
-    setStatus("Popup blocked. Allow popups for this site and try again.");
-    isRedirecting = false;
-    setControlsDisabled(false);
-    updateSelectionCount();
-    return;
-  }
-
-  setStatus(`Opening ${selected.length} download page(s)`);
-  for (let i = 0; i < selected.length; i += 1) {
-    if (helperWindow.closed) {
-      setStatus(`Stopped at ${i}/${selected.length}: downloader window was closed.`);
-      isRedirecting = false;
-      setControlsDisabled(false);
-      updateSelectionCount();
-      return;
-    }
-    const pack = selected[i];
-    const zipPath = createZipPath(pack);
-    setStatus(`Opening ${i + 1}/${selected.length}: ${zipPath}`);
-    helperWindow.location.href = createDownloadUrl(pack);
-    await wait(REDIRECT_INTERVAL_MS);
-  }
-
-  setStatus(`Opened ${selected.length} download page(s).`);
-  isRedirecting = false;
-  setControlsDisabled(false);
   updateSelectionCount();
 }
 
@@ -300,64 +219,16 @@ function renderRows() {
 }
 
 selectAllBtn.addEventListener("click", () => {
-  if (isRedirecting) {
-    return;
-  }
   setAllSelections(true);
 });
 
 toggleAllBtn.addEventListener("click", () => {
-  if (isRedirecting) {
-    return;
-  }
   toggleSelections();
 });
 
 selectNoneBtn.addEventListener("click", () => {
-  if (isRedirecting) {
-    return;
-  }
   setAllSelections(false);
-});
-
-downloadBtn.addEventListener("click", () => {
-  if (isRedirecting) {
-    return;
-  }
-  const selected = getSelectedPacks();
-  if (selected.length === 0) {
-    setStatus("Select at least one item.");
-    return;
-  }
-  openConfirmModal(selected);
-});
-
-confirmNoBtn.addEventListener("click", () => {
-  queuedPacks = [];
-  closeConfirmModal();
-});
-
-confirmYesBtn.addEventListener("click", async () => {
-  const selected = [...queuedPacks];
-  queuedPacks = [];
-  closeConfirmModal();
-  await startRedirects(selected);
-});
-
-confirmModal.addEventListener("click", (event) => {
-  if (event.target === confirmModal) {
-    queuedPacks = [];
-    closeConfirmModal();
-  }
-});
-
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !confirmModal.classList.contains("hidden")) {
-    queuedPacks = [];
-    closeConfirmModal();
-  }
 });
 
 renderRows();
 updateSelectionCount();
-setStatus(`Ready. Loaded ${PACKS.length} items.`);

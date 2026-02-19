@@ -151,51 +151,6 @@ tbody tr:hover {
   background: #1b2430;
 }
 
-.status-wrap {
-  margin-top: 1rem;
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-}
-
-#statusText {
-  margin: 0;
-  color: var(--muted);
-}
-
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-}
-
-.modal.hidden {
-  display: none;
-}
-
-.modal-content {
-  width: min(460px, 100%);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1rem;
-}
-
-.modal-content h2 {
-  margin-top: 0;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  margin-top: 1rem;
-}
-
 @media (max-width: 700px) {
   .app {
     width: min(1120px, 97vw);
